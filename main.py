@@ -16,30 +16,36 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import random
-    
+import math
 
 class ExampleContent(QWidget):
     def __init__(self, parent,fileName):
         self.fileName = fileName
         self.parent = parent
-               
+        self.lab = None
+        self.qp= None
         QWidget.__init__(self, parent)
+        self.setGeometry(0,0,600,600)
+        
+        
+        
+        self.vBox1 = QVBoxLayout()       
+        self.setLayout(self.vBox1)
+        
         self.initUI(fileName)
         
-    def initUI(self,fileName):        
-
-        groupBox1 = QGroupBox('Input File')
-        self.vBox1 = QVBoxLayout()
-        groupBox1.setLayout(self.vBox1)
-        self.setLayout(self.vBox1)
-        self.setGeometry(0,0,0,0)
+    def initUI(self, fN):
+        if(fN ==''):
+            return
+        self.inputImage(fN)
+    
+    def inputImage(self,fN):
         
-    def inputImage(self,fN,val):
-        lab= QLabel()
-        qp = QPixmap(fN)
-        
-        lab.setPixmap(qp)
-        self.vBox1.addWidget(lab)
+        self.lab= QLabel() 
+        self.qp = QPixmap(fN)
+        self.lab.setPixmap(self.qp) 
+        self.vBox1.addWidget(self.lab)
+        self.move(200,200)
         
 class Window(QMainWindow):
     def __init__(self):
@@ -48,17 +54,22 @@ class Window(QMainWindow):
         self.title = "Histogram Matching"
         self.top = 50
         self.left = 50
-        self.width = 1800
-        self.height = 1200
+        self.width = 900
+        self.height = 900
         self.inImage = None
+        self.im = None
         self.inputFile = ''
+        self.result = None
         self.initWindow()
         self.inputFilled = False
-        self.InputChannels = np.zeros((256,1,3), dtype='int32')
-
+        self.resultpath = 'out.png'
         
     def initWindow(self):
          
+        
+        
+        
+        
         #1st menu elements
         exitAct = QAction(QIcon('exit.png'), '&Exit' , self)
         importAct = QAction('&Open Input' , self)
@@ -230,7 +241,6 @@ class Window(QMainWindow):
         self.content = ExampleContent(self, '')
         self.setCentralWidget(self.content)
         
-        
         self.setWindowTitle(self.title)
         self.setStyleSheet('QMainWindow{background-color: darkgray;border: 1px solid black;}')
         self.setGeometry( self.top, self.left, self.width, self.height)
@@ -241,16 +251,22 @@ class Window(QMainWindow):
         sys.exit()
     
     def saveAction(self):
+        fileName = QFileDialog.getSaveFileName(self, 'Save file')
         self.inImage = cv2.cvtColor(self.inImage,cv2.COLOR_BGR2RGB)
-        cv2.imwrite('output.png' , self.inImage)
+        cv2.imwrite(fileName[0] , self.im)
     
     def importInput(self):
         fileName = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "All Files (*);;Png Files (*.png)")
         self.inputFile = fileName[0]
         self.inImage = cv2.imread(fileName[0])
-        self.inImage = cv2.cvtColor(self.inImage,cv2.COLOR_BGR2RGB)
-        self.content.inputImage(self.inputFile,self.InputChannels)
-
+        #self.inImage = cv2.cvtColor(self.inImage,cv2.COLOR_BGR2RGB)
+        self.im = (np.asarray(self.inImage))
+        
+        self.content = ExampleContent(self, self.inputFile)
+        self.setCentralWidget(self.content)
+        
+        
+        
     def avThreeXAction(self):
         self.FilterAction('avg',3)
     def avFiveXAction(self):
@@ -313,15 +329,143 @@ class Window(QMainWindow):
         self.TranslateAction('left')
     
     def FilterAction(self,method,size):
+        
+        kernel = np.ones( (size,size), dtype='float64')
+        if(method == 'gau'):
+            mean = int(size/2)
+            sigma = 1
+            sum = 0
+            for i in range(size):
+                for j in range(size):
+                    kernel[i,j] = math.exp(-1* ((math.pow( (i-mean)/sigma, 2.0) + (math.pow( (j-mean)/sigma, 2.0) ) ) / (2* math.pow(sigma,2)) )) / (sigma * math.pow(2*math.pi, 1/2))
+                    sum += kernel[i,j]
+            
+            for i in range(size):
+                for j in range(size):
+                    kernel[i,j] /= sum
+            
+        self.im = self.convolution(self.im,kernel, method)
+        
+        cv2.imwrite(self.resultpath, self.im)
+        self.content = ExampleContent(self, self.resultpath)
+        self.setCentralWidget(self.content)
+            
+        
         print(method)
         print(size)
         
     def RotateAction(self,type):
-        print(type)
+        deg = math.pi / 18
+        if(type =='right'):
+            deg = deg = math.pi / 18
+        elif(type == 'left'):
+            deg *= -1;
+        kernel = np.zeros((3,3), dtype='float64')
+        kernel[0,0] = math.cos(deg)
+        kernel[0,1] = math.sin(deg) * -1
+        kernel[1,0] = math.sin(deg)
+        kernel[1,1] = math.cos(deg)
+        kernel[2,2] = 1
+        oper = np.ones((3,1) , dtype='int32')
+        height, width, cha = self.im.shape
+        maxi= -500
+        mini = 500
+        maxj = -500
+        minj= 500
+        for c in range(0,cha):
+            for i in range(0,height):
+                for j in range(0,width):
+                    
+                    oper[0,0] = i
+                    oper[1,0] = j
+                    result = np.matmul(kernel, oper)
+                    
+                    result[0] = int(result[0])
+                    result[1] = int(result[1])
+                    maxi = max(maxi, result[0])   
+                    maxj = max(maxj, result[1])   
+                    mini = min(mini, result[0])   
+                    minj = min(minj, result[1])   
+         
+        scaled = np.zeros((int(maxi-mini) + 1,int(maxj-minj) + 1,cha), dtype='int32')
+        for c in range(0,cha):
+            for i in range(0,height):
+                for j in range(0,width):
+                    
+                    oper[0,0] = i
+                    oper[1,0] = j
+                    result = np.matmul(kernel, oper)
+                    scaled[int(result[0]), int(result[1]), c] = self.im[i,j,c]
+        self.im = scaled
+        cv2.imwrite(self.resultpath, self.im)
+        self.content = ExampleContent(self, self.resultpath)
+        self.setCentralWidget(self.content)
+        
+        
     def ScaleAction(self,coef):
-        print(coef)
+        
+        [x,y,cha] = self.im.shape
+        h = int(x* coef)
+        w = int(y* coef)
+        scaled = np.zeros((h,w,cha), dtype='int32')
+        for c in range(0,cha):
+            for i in range(0,x-1):
+                for j in range(0,y-1):
+                    if(coef == 2):
+                        scaled[i*coef+1,j*coef+1,c] = self.im[i,j,c]
+                        scaled[i*coef,j*coef,c] = self.im[i,j,c]
+                        scaled[i*coef+1,j*coef,c] = self.im[i,j,c]
+                        scaled[i*coef,j*coef+1,c] = self.im[i,j,c]
+                    if(coef == 1/2):
+                        h = int(i * coef)
+                        w = int(j * coef)
+                        scaled[h,w,c] += self.im[i,j,c]
+        print(scaled[:,:,0])
+        if(coef == 1/2):
+            for c in range(0,cha):
+                for i in range(0,h):
+                    for j in range(0,w):
+                        scaled[i,j,c] = int( scaled[i,j,c]) / 4
+        print(scaled[:,:,0])
+        print(self.im[:,:,0])
+        self.im = scaled
+        cv2.imwrite(self.resultpath, self.im)
+            
+        self.content = ExampleContent(self, self.resultpath)
+        self.setCentralWidget(self.content)
+                
+        
     def TranslateAction(self,type):
         print(type)
+    
+    
+    
+    
+    def convolution(self,src,dest,method):
+        res = src
+        [h,w,cha] = src.shape
+        [kh,kw] = dest.shape # kernel shape
+        kr = int(kh/2) # kernel radius
+        res = np.zeros(src.shape)
+        for ch in range(0, cha):
+            for i in range(0+kr,h-kr):
+                for j in range(0+kr,w-kr):
+                    findForMed=np.zeros((kh,kh))
+                    for k in range(-1 * kr, kr + 1):
+                        for m in range(-1 * kr, kr + 1):
+                            if(method =='med'):
+                                findForMed[k,m] = dest[k,m]*src[i+k, j+m,ch] 
+                            else:
+                                res[i,j,ch] += dest[k,m]*src[i+k, j+m,ch]
+                    if(method=='med'):
+                        res[i,j,ch] = np.median(findForMed)
+        
+        if(method=='avg'):
+            res = res/(kh*kh)  # averaging
+        if(method =='gau'):
+            print(method)
+            
+        return res
     
 if __name__ == '__main__':
     App = QApplication(sys.argv)
