@@ -51,7 +51,7 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        self.title = "Histogram Matching"
+        self.title = "Geometric Transforms - Filters"
         self.top = 50
         self.left = 50
         self.width = 900
@@ -337,7 +337,7 @@ class Window(QMainWindow):
             sum = 0
             for i in range(size):
                 for j in range(size):
-                    kernel[i,j] = math.exp(-1* ((math.pow( (i-mean)/sigma, 2.0) + (math.pow( (j-mean)/sigma, 2.0) ) ) / (2* math.pow(sigma,2)) )) / (sigma * math.pow(2*math.pi, 1/2))
+                    kernel[i,j] = math.exp(-1* ((math.pow( (i-mean)/sigma, 2.0) + (math.pow((j-mean)/sigma, 2.0)) ) / (2* math.pow(sigma,2)) )) / (sigma * math.pow(2*math.pi, 1/2))
                     sum += kernel[i,j]
             
             for i in range(size):
@@ -355,20 +355,20 @@ class Window(QMainWindow):
         print(size)
         
     def RotateAction(self,type):
-        deg = math.pi / 18
+        deg = (math.pi / 18) * -1 
         if(type =='right'):
-            deg = deg = math.pi / 18
+            deg = deg  *1 
         elif(type == 'left'):
-            deg *= -1;
+            deg *= -1
         kernel = np.zeros((3,3), dtype='float64')
         kernel[0,0] = math.cos(deg)
-        kernel[0,1] = math.sin(deg) * -1
-        kernel[1,0] = math.sin(deg)
+        kernel[0,1] = math.sin(deg) * -1 
+        kernel[1,0] = math.sin(deg) 
         kernel[1,1] = math.cos(deg)
         kernel[2,2] = 1
         oper = np.ones((3,1) , dtype='int32')
         height, width, cha = self.im.shape
-        maxi= -500
+        maxi= -500 # dummy values, to further calculate the resulting image size
         mini = 500
         maxj = -500
         minj= 500
@@ -395,7 +395,7 @@ class Window(QMainWindow):
                     oper[0,0] = i
                     oper[1,0] = j
                     result = np.matmul(kernel, oper)
-                    scaled[int(result[0]), int(result[1]), c] = self.im[i,j,c]
+                    scaled[int(result[0] -mini), int(result[1] - minj), c] = self.im[i,j,c]
         self.im = scaled
         cv2.imwrite(self.resultpath, self.im)
         self.content = ExampleContent(self, self.resultpath)
@@ -408,26 +408,30 @@ class Window(QMainWindow):
         h = int(x* coef)
         w = int(y* coef)
         scaled = np.zeros((h,w,cha), dtype='int32')
+        # backward mapping with bicubic interpolation
         for c in range(0,cha):
-            for i in range(0,x-1):
-                for j in range(0,y-1):
-                    if(coef == 2):
-                        scaled[i*coef+1,j*coef+1,c] = self.im[i,j,c]
-                        scaled[i*coef,j*coef,c] = self.im[i,j,c]
-                        scaled[i*coef+1,j*coef,c] = self.im[i,j,c]
-                        scaled[i*coef,j*coef+1,c] = self.im[i,j,c]
-                    if(coef == 1/2):
-                        h = int(i * coef)
-                        w = int(j * coef)
-                        scaled[h,w,c] += self.im[i,j,c]
-        print(scaled[:,:,0])
-        if(coef == 1/2):
-            for c in range(0,cha):
-                for i in range(0,h):
-                    for j in range(0,w):
-                        scaled[i,j,c] = int( scaled[i,j,c]) / 4
-        print(scaled[:,:,0])
-        print(self.im[:,:,0])
+            for i in range(0,h):
+                for j in range(0,w):
+                    scaled[i,j,c] = self.calculateInterpolation(self.im,i,j,c,coef)
+#      Forward mapping
+#        for c in range(0,cha):
+#            for i in range(0,x-1):
+#                for j in range(0,y-1):
+#
+#                    if(coef == 2):
+#                        scaled[i*coef+1,j*coef+1,c] = self.im[i,j,c]
+#                        scaled[i*coef,j*coef,c] = self.im[i,j,c]
+#                        scaled[i*coef+1,j*coef,c] = self.im[i,j,c]
+#                        scaled[i*coef,j*coef+1,c] = self.im[i,j,c]
+#                    if(coef == 1/2):
+#                        h = int(i * coef)
+#                        w = int(j * coef)
+#                        scaled[h,w,c] += self.im[i,j,c]
+#        if(coef == 1/2):
+#            for c in range(0,cha):
+#                for i in range(0,h):
+#                    for j in range(0,w):
+#                        scaled[i,j,c] = int(scaled[i,j,c]) / 4
         self.im = scaled
         cv2.imwrite(self.resultpath, self.im)
             
@@ -462,10 +466,45 @@ class Window(QMainWindow):
         
         if(method=='avg'):
             res = res/(kh*kh)  # averaging
-        if(method =='gau'):
-            print(method)
-            
+
         return res
+    
+    def cubicInterpolation(self, pix,x):
+        p1 = pix[0]
+        p2 = pix[1] 
+        p3 = pix[2] 
+        p4 = pix[3]
+        a =  p2
+        b = (-1/2) * p1 + p3/2
+        c = p1 - (5/2) * p2 + 2*p3 - p4/2
+        d = -1 * p1/2 + (3/2) * p2 - (3/2) * p3 + p4/2
+        
+        return (a) + (b * math.pow(x,1))+(c * math.pow(x,2))+((d * math.pow(x,3)))
+    
+    def calculateInterpolation(self,src,x,y,c,coef):
+        [h,w,cha] = src.shape
+        
+        srcx = int(x/coef)
+        xfrc = x/coef - srcx
+        
+        srcy = int(y/coef)
+        yfrc = y/coef - srcy
+        
+        pixels = np.zeros((4,4) , dtype='int32')
+
+        for i in range(-1,3):
+            for j in range(-1,3):
+                if(x+i >= 0 and srcx+i < h and y+j >= 0 and srcy+j < w ):
+                    pixels[i+1,j+1] = self.im[srcx+i,srcy+j,c]
+        cols = np.zeros((4,1) , dtype='int32')
+        for i in range(0,4):
+            cols[i,0] = self.cubicInterpolation(pixels[i,:], xfrc)
+        val = self.cubicInterpolation(cols[:,0] , yfrc)
+        if(val<0): 
+            val = 0
+        if(val >= 255):
+            val = 255
+        return int(val)
     
 if __name__ == '__main__':
     App = QApplication(sys.argv)
