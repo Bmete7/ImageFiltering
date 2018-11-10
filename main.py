@@ -8,14 +8,12 @@ Created on Mon Nov  5 11:31:24 2018
 import cv2
  
 from PyQt5 import QtGui, QtCore
+from PyQt5.QtCore import QRect
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 import sys
 import numpy as np
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-import random
+
 import math
 
 class ExampleContent(QWidget):
@@ -25,7 +23,7 @@ class ExampleContent(QWidget):
         self.lab = None
         self.qp= None
         QWidget.__init__(self, parent)
-        self.setGeometry(0,0,600,600)
+        self.setGeometry(200,200,600,600)
         
         
         
@@ -45,7 +43,7 @@ class ExampleContent(QWidget):
         self.qp = QPixmap(fN)
         self.lab.setPixmap(self.qp) 
         self.vBox1.addWidget(self.lab)
-        self.move(200,200)
+        
         
 class Window(QMainWindow):
     def __init__(self):
@@ -54,8 +52,8 @@ class Window(QMainWindow):
         self.title = "Geometric Transforms - Filters"
         self.top = 50
         self.left = 50
-        self.width = 900
-        self.height = 900
+        self.width = 300
+        self.height = 500
         self.inImage = None
         self.im = None
         self.inputFile = ''
@@ -66,10 +64,7 @@ class Window(QMainWindow):
         
     def initWindow(self):
          
-        
-        
-        
-        
+
         #1st menu elements
         exitAct = QAction(QIcon('exit.png'), '&Exit' , self)
         importAct = QAction('&Open Input' , self)
@@ -87,7 +82,6 @@ class Window(QMainWindow):
         avFilters = QMenu('Average Filters',self)
         gauFilters = QMenu('Gaussian Filters',self)
         medFilters = QMenu('Median Filters',self)
-        
         
         
         #1st submenu of filters
@@ -375,7 +369,6 @@ class Window(QMainWindow):
         for c in range(0,cha):
             for i in range(0,height):
                 for j in range(0,width):
-                    
                     oper[0,0] = i
                     oper[1,0] = j
                     result = np.matmul(kernel, oper)
@@ -387,16 +380,17 @@ class Window(QMainWindow):
                     mini = min(mini, result[0])   
                     minj = min(minj, result[1])   
          
-        scaled = np.zeros((int(maxi-mini) + 1,int(maxj-minj) + 1,cha), dtype='int32')
+        rotated = np.zeros((int(maxi-mini)+1,int(maxj-minj) + 1,cha), dtype='int32')
         for c in range(0,cha):
-            for i in range(0,height):
-                for j in range(0,width):
+            for i in range(0,int(maxi-mini)):
+                for j in range(0,int(maxj-minj)):
+                    oper[0] = int(i + mini)
+                    oper[1] = int(j + minj)
+                    oper[2] = 1
+                    result = np.matmul (np.linalg.inv(kernel), oper)
+                    rotated[i,j,c] = self.calculateInterpolation(self.im,result[0],result[1],c,i,'rot')
                     
-                    oper[0,0] = i
-                    oper[1,0] = j
-                    result = np.matmul(kernel, oper)
-                    scaled[int(result[0] -mini), int(result[1] - minj), c] = self.im[i,j,c]
-        self.im = scaled
+        self.im = rotated
         cv2.imwrite(self.resultpath, self.im)
         self.content = ExampleContent(self, self.resultpath)
         self.setCentralWidget(self.content)
@@ -412,26 +406,8 @@ class Window(QMainWindow):
         for c in range(0,cha):
             for i in range(0,h):
                 for j in range(0,w):
-                    scaled[i,j,c] = self.calculateInterpolation(self.im,i,j,c,coef)
-#      Forward mapping
-#        for c in range(0,cha):
-#            for i in range(0,x-1):
-#                for j in range(0,y-1):
-#
-#                    if(coef == 2):
-#                        scaled[i*coef+1,j*coef+1,c] = self.im[i,j,c]
-#                        scaled[i*coef,j*coef,c] = self.im[i,j,c]
-#                        scaled[i*coef+1,j*coef,c] = self.im[i,j,c]
-#                        scaled[i*coef,j*coef+1,c] = self.im[i,j,c]
-#                    if(coef == 1/2):
-#                        h = int(i * coef)
-#                        w = int(j * coef)
-#                        scaled[h,w,c] += self.im[i,j,c]
-#        if(coef == 1/2):
-#            for c in range(0,cha):
-#                for i in range(0,h):
-#                    for j in range(0,w):
-#                        scaled[i,j,c] = int(scaled[i,j,c]) / 4
+                    scaled[i,j,c] = self.calculateInterpolation(self.im,i,j,c,coef,'sca')
+
         self.im = scaled
         cv2.imwrite(self.resultpath, self.im)
             
@@ -440,10 +416,34 @@ class Window(QMainWindow):
                 
         
     def TranslateAction(self,type):
-        print(type)
+        
+        cons = 10
+        if(type == 'left'):
+            cons *= -1
+        [x,y,cha] = self.im.shape
+        h = x
+        w=y
+        kernel = np.zeros((3,3), dtype='float64')
+        kernel[0,0] =1 
+        kernel [1,1] = 1
+        kernel[2,2] = 1
+        kernel[1,2] = cons
+        
+        translated = np.zeros((h,w ,cha), dtype='int32')
+        oper = np.ones((3,1) , dtype='int32')
+        for c in range(0,cha):
+            for i in range(0,h):
+                for j in range(0,w):
+                    oper[0] = i
+                    oper[1] = j
+                    result = np.matmul (np.linalg.inv(kernel), oper)
+                    translated[i,j,c] = self.calculateInterpolation(self.im,result[0],result[1],c,cons,'tra')
+        
     
-    
-    
+        self.im = translated
+        cv2.imwrite(self.resultpath, self.im)
+        self.content = ExampleContent(self, self.resultpath)
+        self.setCentralWidget(self.content)
     
     def convolution(self,src,dest,method):
         res = src
@@ -481,15 +481,27 @@ class Window(QMainWindow):
         
         return (a) + (b * math.pow(x,1))+(c * math.pow(x,2))+((d * math.pow(x,3)))
     
-    def calculateInterpolation(self,src,x,y,c,coef):
+    def calculateInterpolation(self,src,x,y,c,coef,interType):
         [h,w,cha] = src.shape
+        if(interType == 'sca'):
+            srcx = int(x/coef)
+            xfrc = x/coef - srcx        
+            srcy = int(y/coef)
+            yfrc = y/coef - srcy
         
-        srcx = int(x/coef)
-        xfrc = x/coef - srcx
+        elif(interType== 'rot'):
+            srcx = int(x)
+            xfrc = abs(x - srcx)
+            srcy = int(y)
+            yfrc = abs(y - srcy)
         
-        srcy = int(y/coef)
-        yfrc = y/coef - srcy
-        
+        elif(interType== 'tra'):
+            srcx = int(x)
+            xfrc = abs(x - srcx)
+            srcy = int(y)
+            yfrc = abs(y - srcy)
+            
+            
         pixels = np.zeros((4,4) , dtype='int32')
 
         for i in range(-1,3):
